@@ -2,3 +2,6 @@
 /assembler
 /my.out
 /.vscode
+/tests
+/p4
+/sync2Server.sh
