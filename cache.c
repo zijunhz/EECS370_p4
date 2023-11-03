@@ -9,6 +9,7 @@
 
 #define MAX_CACHE_SIZE 256
 #define MAX_BLOCK_SIZE 256
+// #define IS_DEBUG
 
 // **Note** this is a preprocessor macro. This is not the same as a function.
 // Powers of 2 have exactly one 1 and the rest 0's, and 0 isn't a power of 2.
@@ -115,6 +116,21 @@ void adjustLru(int set, int updatedBlock) {
     // printf("\n");
 }
 
+void writeBack(blockStruct* theBlock, int oldAddrStart) {
+    printAction(oldAddrStart, cache.blockSize, cacheToMemory);
+    for (int k = 0; k < cache.blockSize; ++k) {
+        mem_access(oldAddrStart + k, 1, theBlock->data[k]);
+    }
+}
+
+void checkOverwritten(blockStruct* theBlock, int oldAddrStart) {
+    if (theBlock->valid && theBlock->dirty) {  // about to overwrite! write back to mem
+        writeBack(theBlock, oldAddrStart);
+    } else if (theBlock->valid) {
+        printAction(oldAddrStart, cache.blockSize, cacheToNowhere);
+    }
+}
+
 /*
  * Access the cache. This is the main part of the project,
  * and should call printAction as is appropriate.
@@ -129,11 +145,14 @@ int cache_access(int addr, int write_flag, int write_data) {
     /* The next line is a placeholder to connect the simulator to
     memory with no cache. You will remove this line and implement
     a cache which interfaces between the simulator and memory. */
-    // printf("================ %d %d %d\n", addr, write_flag, write_data);
     int targetSet = (addr / cache.blockSize) % cache.numSets;
-    int targetTag = addr / (cache.blockSize * cache.blocksPerSet);
+    int targetTag = addr / (cache.blockSize * cache.numSets);
     int targetLine = addr % cache.blockSize;
-    int addrStart = targetTag * cache.blocksPerSet * cache.blockSize;
+    int addrStart = targetTag * cache.blockSize * cache.numSets + targetSet * cache.blockSize;
+#ifdef IS_DEBUG
+    printf("================ %d %d %d\n", addr, write_flag, write_data);
+    printf("      ========== set %d tag %d line %d start %d\n", targetSet, targetTag, targetLine, addrStart);
+#endif
     if (write_flag) {  // writes
         for (int j = 0; j < cache.blocksPerSet; ++j) {
             blockStruct* theBlock = getBlock(targetSet, j);
@@ -149,16 +168,8 @@ int cache_access(int addr, int write_flag, int write_data) {
         for (int j = 0; j < cache.blocksPerSet; ++j) {
             blockStruct* theBlock = getBlock(targetSet, j);
             if (theBlock->lruLabel == 0) {
-                if (theBlock->valid && theBlock->dirty) {  // about to overwrite! write back to mem
-                    int oldAddrStart = theBlock->tag * cache.blocksPerSet * cache.blockSize;
-                    printAction(oldAddrStart, cache.blockSize, cacheToMemory);
-                    for (int k = 0; k < cache.blockSize; ++k) {
-                        mem_access(oldAddrStart + k, 1, theBlock->data[k]);
-                    }
-                } else if (theBlock->valid) {
-                    int oldAddrStart = theBlock->tag * cache.blocksPerSet * cache.blockSize;
-                    printAction(oldAddrStart, cache.blockSize, cacheToNowhere);
-                }
+                int oldAddrStart = theBlock->tag * cache.blockSize * cache.numSets + targetSet * cache.blockSize;
+                checkOverwritten(theBlock, oldAddrStart);
 
                 theBlock->dirty = 1;
                 theBlock->valid = 1;
@@ -185,17 +196,9 @@ int cache_access(int addr, int write_flag, int write_data) {
         // miss
         for (int j = 0; j < cache.blocksPerSet; ++j) {
             blockStruct* theBlock = getBlock(targetSet, j);
-            if (theBlock->lruLabel == 0) {                 // read from mem to cache
-                if (theBlock->valid && theBlock->dirty) {  // about to overwrite! write back to mem
-                    int oldAddrStart = theBlock->tag * cache.blocksPerSet * cache.blockSize;
-                    printAction(oldAddrStart, cache.blockSize, cacheToMemory);
-                    for (int k = 0; k < cache.blockSize; ++k) {
-                        mem_access(oldAddrStart + k, 1, theBlock->data[k]);
-                    }
-                } else if (theBlock->valid) {
-                    int oldAddrStart = theBlock->tag * cache.blocksPerSet * cache.blockSize;
-                    printAction(oldAddrStart, cache.blockSize, cacheToNowhere);
-                }
+            if (theBlock->lruLabel == 0) {  // read from mem to cache
+                int oldAddrStart = theBlock->tag * cache.blockSize * cache.numSets + targetSet * cache.blockSize;
+                checkOverwritten(theBlock, oldAddrStart);
                 theBlock->tag = targetTag;
                 theBlock->dirty = 0;
                 theBlock->valid = 1;
